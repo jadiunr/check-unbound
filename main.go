@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -78,6 +79,14 @@ var (
             Value: &plugin.Config,
         },
 	}
+
+    histogramMetric = newUnboundMetric(
+        "response_time_seconds",
+        "Query response time in seconds.",
+        dto.MetricType_HISTOGRAM,
+        []string{},
+        "^histogram\\.\\d+\\.\\d+\\.to\\.(\\d+\\.\\d+)$",
+    )
 
     unboundMetrics = []*UnboundMetric{
         newUnboundMetric(
@@ -359,6 +368,11 @@ func executeCheck(event *types.Event) (int, error) {
     }
 
     scanner := bufio.NewScanner(&out)
+
+    histogramCount := uint64(0)
+    histogramAvg := float64(0)
+    histogramBuckets := make(map[float64]uint64)
+
     for scanner.Scan() {
         fields := strings.Split(scanner.Text(), "=")
         if len(fields) != 2 {
@@ -392,7 +406,56 @@ func executeCheck(event *types.Event) (int, error) {
                 }
             }
         }
+
+        if matches := histogramMetric.pattern.FindStringSubmatch(fields[0]); matches != nil {
+            upperBound, err := strconv.ParseFloat(matches[1], 64)
+            if err != nil {
+                return sensu.CheckStateCritical, err
+            }
+            value, err := strconv.ParseUint(fields[1], 10, 64)
+            if err != nil {
+                return sensu.CheckStateCritical, err
+            }
+            histogramBuckets[upperBound] = value
+            histogramCount += value
+        } else if fields[0] == "total.recursion.time.avg" {
+            value, err := strconv.ParseFloat(fields[1], 64)
+            if err != nil {
+                return sensu.CheckStateCritical, err
+            }
+            histogramAvg = value
+        }
     }
+
+    keys := []float64{}
+    for k := range histogramBuckets {
+        keys = append(keys, k)
+    }
+    sort.Float64s(keys)
+    prev := uint64(0)
+    for _, i := range keys {
+        histogramBuckets[i] += prev
+        prev = histogramBuckets[i]
+    }
+    bucket := []*dto.Bucket{}
+    for _, i := range keys {
+        upperBound := i
+        cumulativeCount := histogramBuckets[i]
+        bucket = append(bucket, &dto.Bucket{
+            UpperBound: &upperBound,
+            CumulativeCount: &cumulativeCount,
+        })
+    }
+    histogramSum := histogramAvg * float64(histogramCount)
+    histogramMetric.metricFamily.Metric = append(histogramMetric.metricFamily.Metric, &dto.Metric{
+        Histogram: &dto.Histogram{
+            SampleCount: &histogramCount,
+            SampleSum: &histogramSum,
+            Bucket: bucket,
+        },
+    })
+
+    unboundMetrics = append(unboundMetrics, histogramMetric)
 
     err := printMetrics(unboundMetrics)
     if err != nil {
