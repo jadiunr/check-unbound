@@ -25,6 +25,7 @@ type Config struct {
 
 type UnboundMetric struct {
     metricFamily *dto.MetricFamily
+    labels []string
     pattern *regexp.Regexp
 }
 
@@ -37,6 +38,7 @@ func newUnboundMetric(name string, help string, metricType dto.MetricType, label
             Type: &metricType,
             Metric: []*dto.Metric{},
         },
+        labels: labels,
         pattern: regexp.MustCompile(pattern),
     }
 }
@@ -82,21 +84,21 @@ var (
             "answer_rcodes_total",
             "Total number of answers to queries, from cache or from recursion, by response code.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{"rcode"},
             "^num\\.answer\\.rcode\\.(\\w+)$",
         ),
         newUnboundMetric(
             "answers_bogus",
             "Total number of answers that were bogus.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.answer\\.bogus$",
         ),
         newUnboundMetric(
             "answers_secure_total",
             "Total number of answers that were secure.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.answer\\.secure$",
         ),
         newUnboundMetric(
@@ -131,7 +133,7 @@ var (
             "memory_sbrk_bytes",
             "Memory in bytes allocated through sbrk.",
             dto.MetricType_GAUGE,
-            nil,
+            []string{},
             "^mem\\.total\\.sbrk$",
         ),
         newUnboundMetric(
@@ -173,7 +175,7 @@ var (
             "query_ipv6_total",
             "Total number of queries that were made using IPv6 towards the Unbound server.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.query\\.ipv6$",
         ),
         newUnboundMetric(
@@ -187,28 +189,28 @@ var (
             "query_edns_DO_total",
             "Total number of queries that had an EDNS OPT record with the DO (DNSSEC OK) bit set present.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.query\\.edns\\.DO$",
         ),
         newUnboundMetric(
             "query_edns_present_total",
             "Total number of queries that had an EDNS OPT record present.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.query\\.edns\\.present$",
         ),
         newUnboundMetric(
             "query_tcp_total",
             "Total number of queries that were made using TCP towards the Unbound server.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.query\\.tcp$",
         ),
         newUnboundMetric(
             "query_tls_total",
             "Total number of queries that were made using TCP TLS towards the Unbound server.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.query\\.tls$",
         ),
         newUnboundMetric(
@@ -257,70 +259,70 @@ var (
             "rrset_bogus_total",
             "Total number of rrsets marked bogus by the validator.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^num\\.rrset\\.bogus$",
         ),
         newUnboundMetric(
             "time_elapsed_seconds",
             "Time since last statistics printout in seconds.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^time\\.elapsed$",
         ),
         newUnboundMetric(
             "time_now_seconds",
             "Current time in seconds since 1970.",
             dto.MetricType_GAUGE,
-            nil,
+            []string{},
             "^time\\.now$",
         ),
         newUnboundMetric(
             "time_up_seconds_total",
             "Uptime since server boot in seconds.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^time\\.up$",
         ),
         newUnboundMetric(
             "unwanted_queries_total",
             "Total number of queries that were refused or dropped because they failed the access control settings.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^unwanted\\.queries$",
         ),
         newUnboundMetric(
             "unwanted_replies_total",
             "Total number of replies that were unwanted or unsolicited.",
             dto.MetricType_COUNTER,
-            nil,
+            []string{},
             "^unwanted\\.replies$",
         ),
         newUnboundMetric(
             "recursion_time_seconds_avg",
             "Average time it took to answer queries that needed recursive processing (does not include in-cache requests).",
             dto.MetricType_GAUGE,
-            nil,
+            []string{},
             "^total\\.recursion\\.time\\.avg$",
         ),
         newUnboundMetric(
             "recursion_time_seconds_median",
             "The median of the time it took to answer queries that needed recursive processing.",
             dto.MetricType_GAUGE,
-            nil,
+            []string{},
             "^total\\.recursion\\.time\\.median$",
         ),
         newUnboundMetric(
             "msg_cache_count",
             "The Number of Messages cached",
             dto.MetricType_GAUGE,
-            nil,
+            []string{},
             "^msg\\.cache\\.count$",
         ),
         newUnboundMetric(
             "rrset_cache_count",
             "The Number of rrset cached",
             dto.MetricType_GAUGE,
-            nil,
+            []string{},
             "^rrset\\.cache\\.count$",
         ),
     }
@@ -352,7 +354,9 @@ func executeCheck(event *types.Event) (int, error) {
     var out bytes.Buffer
     cmd.Stdout = &out
 
-    cmd.Run()
+    if err := cmd.Run(); err != nil {
+        return sensu.CheckStateCritical, fmt.Errorf("failed to execute command: %v", err)
+    }
 
     scanner := bufio.NewScanner(&out)
     for scanner.Scan() {
@@ -367,17 +371,18 @@ func executeCheck(event *types.Event) (int, error) {
                 if err != nil {
                     return sensu.CheckStateCritical, err
                 }
+                labelPairs := makeLabelPairs(metric.labels, matches[1:])
                 switch metric.metricFamily.Type.String() {
                 case dto.MetricType_GAUGE.String():
                     metric.metricFamily.Metric = append(metric.metricFamily.Metric, &dto.Metric{
-                        //Label: []*dto.LabelPair{{Name: &matches[1], Value: &matches[2]}},
+                        Label: labelPairs,
                         Gauge: &dto.Gauge{
                             Value: &value,
                         },
                     })
                 case dto.MetricType_COUNTER.String():
                     metric.metricFamily.Metric = append(metric.metricFamily.Metric, &dto.Metric{
-                        //Label: []*dto.LabelPair{{Name: &matches[1], Value: &matches[2]}},
+                        Label: labelPairs,
                         Counter: &dto.Counter{
                             Value: &value,
                         },
@@ -395,6 +400,14 @@ func executeCheck(event *types.Event) (int, error) {
     }
 
 	return sensu.CheckStateOK, nil
+}
+
+func makeLabelPairs(keys []string, values []string) []*dto.LabelPair {
+    labelPairs := []*dto.LabelPair{}
+    for i, key := range keys {
+        labelPairs = append(labelPairs, &dto.LabelPair{Name: &key, Value: &values[i]})
+    }
+    return labelPairs
 }
 
 func printMetrics(metrics []*UnboundMetric) error {
