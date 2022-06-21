@@ -402,8 +402,10 @@ func executeCheck(event *types.Event) (int, error) {
                         },
                     })
                 default:
-                    return sensu.CheckStateCritical, fmt.Errorf("Fuck You")
+                    return sensu.CheckStateCritical, fmt.Errorf("metric type %s of %s is invalid or not supported", metric.metricFamily.Type.String(), *metric.metricFamily.Name)
                 }
+
+                break
             }
         }
 
