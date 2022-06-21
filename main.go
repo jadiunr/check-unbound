@@ -362,9 +362,11 @@ func executeCheck(event *types.Event) (int, error) {
 
     var out bytes.Buffer
     cmd.Stdout = &out
+    var errOut bytes.Buffer
+    cmd.Stderr = &errOut
 
     if err := cmd.Run(); err != nil {
-        return sensu.CheckStateCritical, fmt.Errorf("failed to execute command: %v", err)
+        return sensu.CheckStateCritical, fmt.Errorf("failed to execute command: %v\n\nCommand output:\n%s", err, errOut.String())
     }
 
     scanner := bufio.NewScanner(&out)
