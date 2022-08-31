@@ -1,4 +1,4 @@
-# Check Unbound
+# Unbound check for Sensu
 
 ## Table of Contents
 - [Overview](#overview)
