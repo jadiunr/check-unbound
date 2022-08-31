@@ -1,3 +1,7 @@
+[![Sensu Bonsai Asset](https://img.shields.io/badge/Bonsai-Download%20Me-brightgreen.svg?colorB=89C967&logo=sensu)](https://bonsai.sensu.io/assets/jadiunr/check-unbound)
+![Go Test](https://github.com/jadiunr/check-unbound/workflows/Go%20Test/badge.svg)
+![goreleaser](https://github.com/jadiunr/check-unbound/workflows/goreleaser/badge.svg)
+
 # Unbound check for Sensu
 
 ## Table of Contents
